@@ -170,8 +170,7 @@ var toggleDoor = function(sequence, params) {
             }
         }, function (error, response, body) {
     		if (!error && response.statusCode == 200) {
-    		    console.log("Toggled " + params.serial);
-    		    params.res.send(body);
+    		    sendResponse(params, "Toggled " + params.serial)
     		    runSequence(sequence)();
     		    return;
     		}
