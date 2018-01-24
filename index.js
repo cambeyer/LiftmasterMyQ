@@ -190,7 +190,7 @@ var toggleDoor = function(sequence, params) {
     		sendResponse(params, "Could not toggle the door", true);
         });
     } else {
-        sendResponse(params, "Taking no action since the door is in the desired state");
+        sendResponse(params, { serial: params.serial, closed: params.closed });
         runSequence(sequence)();
     }
 };
