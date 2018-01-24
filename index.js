@@ -168,9 +168,9 @@ var toggleDoor = function(sequence, params) {
                 'attributename': 'desireddoorstate',
                 'attributevalue': (params.closed ? 1 : 0)
             }
-        }, function (error, response, body) {
+        }, function (error, response) {
     		if (!error && response.statusCode == 200) {
-    		    sendResponse(params, "Toggled " + params.serial)
+    		    sendResponse(params, "Toggled " + params.serial);
     		    runSequence(sequence)();
     		    return;
     		}
