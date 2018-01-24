@@ -202,8 +202,16 @@ app.get('/:username/:password/:command', function (req, res){
         password: encodeURIComponent(req.params.password),
         shouldclose: req.params.command == CLOSE_COMMAND
     };
+    if (req.params.command == "list") {
+        sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
+    }
     runSequence(sequence)(sequence, params);
 });
+
+var sendDevices = function(sequence, params) {
+    sendResponse(params, params.serial + " closed: " + params.closed);
+    runSequence(sequence)(sequence, params);
+};
 
 http.listen(process.env.PORT, "0.0.0.0", function () {
 	console.log('listening on *:' + process.env.PORT);
