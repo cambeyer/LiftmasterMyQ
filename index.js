@@ -30,10 +30,19 @@ var URL_TO_TOGGLE_DOOR = "https://www.myliftmaster.com/Device/TriggerStateChange
 app.use(busboy());
 app.use(express.static(path.join(__dirname, 'public')));
 
+var sendResponse = function(params, message) {
+    console.log(message);
+    params.res.send(message);
+};
+
 var getCookieValue = function(response, field) {
     var cookies = response.headers[SET_COOKIE_RESPONSE].join(", ");
     //console.log("Cookies: " + cookies);
     var fieldindex = cookies.indexOf(field);
+    if (fieldindex < 0)
+    {
+        return "";
+    }
     return cookies.substring(fieldindex, cookies.indexOf(";", fieldindex));
 };
     
@@ -45,10 +54,14 @@ var getSession = function(sequence, params) {
     }, function (error, response) {
 		if (!error && response.statusCode == 200) {
 		    var sessionID = getCookieValue(response, SESSION_ID_FIELD);
-		    console.log("Session ID acquired: " + sessionID);
-		    params.cookie = sessionID;
-		    runSequence(sequence)(sequence, params);
+		    if (sessionID != "") {
+    		    console.log("Session ID acquired: " + sessionID);
+    		    params.cookie = sessionID;
+    		    runSequence(sequence)(sequence, params);
+    		    return;
+		    }
 		}
+        sendResponse(params, "Could not fetch session ID");
     });
 };
 
@@ -67,12 +80,16 @@ var doLogin = function(sequence, params) {
 		if (!error) {
             var appCookie = getCookieValue(response, APPLICATION_COOKIE_FIELD);
             var special = getCookieValue(response, EXTRA_SPECIAL_FIELD);
-            console.log("Logged in");
-            //console.log(appCookie);
-            //console.log(special);
-            params.cookie = params.cookie + "; " + appCookie + "; " + special;
-            runSequence(sequence)(sequence, params);
+            if (appCookie != "" && special != "") {
+                console.log("Logged in");
+                //console.log(appCookie);
+                //console.log(special);
+                params.cookie = params.cookie + "; " + appCookie + "; " + special;
+                runSequence(sequence)(sequence, params);
+                return;
+            }
 		}
+        sendResponse(params, "Login unsuccessful");
     });
 };
 
@@ -87,10 +104,14 @@ var getAccount = function(sequence, params) {
     }, function (error, response) {
 		if (!error && response.statusCode == 200) {
             var account = getCookieValue(response, ACCOUNT_ID_FIELD);
-            console.log("Account Number acquired: " + account);
-            params.cookie = params.cookie + "; " + account;
-            runSequence(sequence)(sequence, params);
+            if (account != "") {
+                console.log("Account Number acquired: " + account);
+                params.cookie = params.cookie + "; " + account;
+                runSequence(sequence)(sequence, params);
+                return;
+            }
 		}
+		sendResponse(params, "Could not fetch account number");
     });
 };
 
@@ -107,8 +128,15 @@ var getDevices = function(sequence, params) {
         }
     }, function (error, response, body) {
 		if (!error && response.statusCode == 200) {
-		    console.log("Got devices");
-		    var devices = JSON.parse(body);
+		    var devices = [];
+		    try {
+		        devices = JSON.parse(body);
+		    } catch (e) {
+		        console.log("Could not parse devices response");
+		    }
+		    if (devices.length > 0) {
+		        console.log("Got devices");
+		    }
 		    for (let device of devices) {
 		        if (device[DEVICE_TYPE_ID_FIELD] == GARAGE_DOOR_TYPE) {
 		            var serial = device[DEVICE_ID_FIELD];
@@ -117,10 +145,11 @@ var getDevices = function(sequence, params) {
 	                params.serial = serial;
 	                params.closed = closed;
 	                runSequence(sequence)(sequence, params);
-	                break;
+	                return;
 		        }
 		    }
 		}
+		sendResponse(params, "Could not fetch any MyQ devices");
     });
 };
 
@@ -144,11 +173,12 @@ var toggleDoor = function(sequence, params) {
     		    console.log("Toggled " + params.serial);
     		    params.res.send(body);
     		    runSequence(sequence)();
+    		    return;
     		}
+    		sendResponse(params, "Could not toggle the door");
         });
     } else {
-        console.log("Taking no action since the door is in the desired state");
-        params.res.send("Already " + (params.closed ? "Closed" : "Open"));
+        sendResponse(params, "Taking no action since the door is in the desired state");
         runSequence(sequence)();
     }
 };
