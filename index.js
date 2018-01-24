@@ -3,10 +3,13 @@ var app = express();
 var busboy = require('connect-busboy');
 var path = require('path');
 var http = require('http').Server(app);
+var io = require('socket.io')(http);
 
 var request = require('request');
 
+var OPEN_COMMAND = "open";
 var CLOSE_COMMAND = "close";
+
 var SET_COOKIE_RESPONSE = "set-cookie";
 var SESSION_ID_FIELD = "ASP.NET_SessionId";
 var FORM_DATA_TYPE = "application/x-www-form-urlencoded";
@@ -19,7 +22,7 @@ var GARAGE_DOOR_TYPE = 2;
 var OPEN_CLOSED_INDICATOR_FIELD = "ToggleAttributeValue";
 var DEVICE_ID_FIELD = "MyQDeviceId";
 
-var URL_TO_GET_SESSION = "https://www.myliftmaster.com/";
+var URL_TO_GET_SESSION = "https://www.myliftmaster.com/Dashboard";
 var URL_TO_LOGIN = "https://www.myliftmaster.com/";
 var EMAIL_FIELD = "Email";
 var PASSWORD_FIELD = "Password";
@@ -30,9 +33,19 @@ var URL_TO_TOGGLE_DOOR = "https://www.myliftmaster.com/Device/TriggerStateChange
 app.use(busboy());
 app.use(express.static(path.join(__dirname, 'public')));
 
-var sendResponse = function(params, message) {
+var sendResponse = function(params, message, error) {
     console.log(message);
-    params.res.send(message);
+    if (error) {
+        message = "ERROR: " + message;
+    }
+    if (params.res)
+    {
+        params.res.send(message);
+    }
+    if (params.socket)
+    {
+        params.socket.emit('message', { message: message });
+    }
 };
 
 var getCookieValue = function(response, field) {
@@ -61,7 +74,7 @@ var getSession = function(sequence, params) {
     		    return;
 		    }
 		}
-        sendResponse(params, "Could not fetch session ID");
+        sendResponse(params, "Could not fetch session ID", true);
     });
 };
 
@@ -89,7 +102,7 @@ var doLogin = function(sequence, params) {
                 return;
             }
 		}
-        sendResponse(params, "Login unsuccessful");
+        sendResponse(params, "Login unsuccessful", true);
     });
 };
 
@@ -111,7 +124,7 @@ var getAccount = function(sequence, params) {
                 return;
             }
 		}
-		sendResponse(params, "Could not fetch account number");
+		sendResponse(params, "Could not fetch account number", true);
     });
 };
 
@@ -149,12 +162,12 @@ var getDevices = function(sequence, params) {
 		        }
 		    }
 		}
-		sendResponse(params, "Could not fetch any MyQ devices");
+		sendResponse(params, "Could not fetch any MyQ devices", true);
     });
 };
 
 var toggleDoor = function(sequence, params) {
-    if (params.shouldclose != params.closed) {
+    if ((params.command == CLOSE_COMMAND) != params.closed) {
         console.log((params.closed ? "Opening" : "Closing") + " door with serial " + params.serial);
     	request({
             method: "POST",
@@ -170,11 +183,11 @@ var toggleDoor = function(sequence, params) {
             }
         }, function (error, response) {
     		if (!error && response.statusCode == 200) {
-    		    sendResponse(params, "Toggled " + params.serial);
+    		    sendResponse(params, { serial: params.serial, closed: !params.closed });
     		    runSequence(sequence)();
     		    return;
     		}
-    		sendResponse(params, "Could not toggle the door");
+    		sendResponse(params, "Could not toggle the door", true);
         });
     } else {
         sendResponse(params, "Taking no action since the door is in the desired state");
@@ -192,6 +205,11 @@ var runSequence = function(sequence) {
     }
 };
 
+var sendDevices = function(sequence, params) {
+    sendResponse(params, { serial: params.serial, closed: params.closed });
+    runSequence(sequence)(sequence, params);
+};
+
 app.get('/:username/:password/:command', function (req, res){
     console.log("Received command: " + req.params.command);
     var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
@@ -199,7 +217,7 @@ app.get('/:username/:password/:command', function (req, res){
         res: res,
         username: encodeURIComponent(req.params.username),
         password: encodeURIComponent(req.params.password),
-        shouldclose: req.params.command == CLOSE_COMMAND
+        command: req.params.command
     };
     if (req.params.command == "list") {
         sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
@@ -207,10 +225,37 @@ app.get('/:username/:password/:command', function (req, res){
     runSequence(sequence)(sequence, params);
 });
 
-var sendDevices = function(sequence, params) {
-    sendResponse(params, params.serial + " closed: " + params.closed);
+var kickoffToggle = function(socket, msg, command) {
+    var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
+    var params = {
+        socket: socket,
+        username: encodeURIComponent(msg.username),
+        password: encodeURIComponent(msg.password),
+        command: command ? OPEN_COMMAND : CLOSE_COMMAND
+    };
     runSequence(sequence)(sequence, params);
 };
+
+//when a new client connects
+io.on('connection', function(socket) {
+	socket.on('login', function(msg) {
+    	var sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
+        var params = {
+            socket: socket,
+            username: encodeURIComponent(msg.username),
+            password: encodeURIComponent(msg.password)
+        };
+        runSequence(sequence)(sequence, params);
+	});
+	
+	socket.on('open', function(msg) {
+        kickoffToggle(socket, msg, true);
+	});
+	
+    socket.on('close', function(msg) {
+    	kickoffToggle(socket, msg, false);
+	});
+});
 
 http.listen(process.env.PORT, "0.0.0.0", function () {
 	console.log('listening on *:' + process.env.PORT);
