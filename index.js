@@ -4,6 +4,7 @@ var busboy = require('connect-busboy');
 var path = require('path');
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
+var dateTime = require('date-time');
 
 var request = require('request');
 
@@ -124,6 +125,7 @@ var getAccount = function(sequence, params) {
                 return;
             }
 		}
+		console.log(response.headers);
 		sendResponse(params, "Could not fetch account number", true);
     });
 };
@@ -211,6 +213,7 @@ var sendDevices = function(sequence, params) {
 };
 
 app.get('/:username/:password/:command', function (req, res){
+    console.log(dateTime({showMilliseconds: true}));
     console.log("Received command: " + req.params.command);
     var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
     var params = {
@@ -226,6 +229,7 @@ app.get('/:username/:password/:command', function (req, res){
 });
 
 var kickoffToggle = function(socket, msg, command) {
+    console.log(dateTime({showMilliseconds: true}));
     var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
     var params = {
         socket: socket,
@@ -239,6 +243,7 @@ var kickoffToggle = function(socket, msg, command) {
 //when a new client connects
 io.on('connection', function(socket) {
 	socket.on('login', function(msg) {
+	    console.log(dateTime({showMilliseconds: true}));
     	var sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
         var params = {
             socket: socket,
