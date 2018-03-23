@@ -10,6 +10,7 @@ var request = require('request');
 
 var OPEN_COMMAND = "open";
 var CLOSE_COMMAND = "close";
+var LIST_COMMAND = "list";
 
 var SET_COOKIE_RESPONSE = "set-cookie";
 var SESSION_ID_FIELD = "ASP.NET_SessionId";
@@ -213,16 +214,19 @@ var sendDevices = function(sequence, params) {
 };
 
 app.get('/:username/:password/:command', function (req, res){
+    var command = req.params.command;
+    if (command != OPEN_COMMAND && command != CLOSE_COMMAND && command != LIST_COMMAND) { return; }
     console.log(dateTime({showMilliseconds: true}));
-    console.log("Received command: " + req.params.command);
+    console.log("Received command: " + command);
     var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
+    console.log(req.params.username + " " + req.params.password);
     var params = {
         res: res,
         username: encodeURIComponent(req.params.username),
         password: encodeURIComponent(req.params.password),
-        command: req.params.command
+        command: command
     };
-    if (req.params.command == "list") {
+    if (req.params.command == LIST_COMMAND) {
         sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
     }
     runSequence(sequence)(sequence, params);
