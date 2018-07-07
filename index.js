@@ -1,3 +1,5 @@
+process.on('warning', e => console.warn(e.stack));
+
 var express = require('express');
 var app = express();
 var busboy = require('connect-busboy');
@@ -23,6 +25,8 @@ var DEVICE_TYPE_ID_FIELD = "DeviceTypeId";
 var GARAGE_DOOR_TYPE = 2;
 var OPEN_CLOSED_INDICATOR_FIELD = "ToggleAttributeValue";
 var DEVICE_ID_FIELD = "MyQDeviceId";
+
+var MAX_RETRY_COUNT = 3;
 
 var URL_TO_GET_SESSION = "https://www.myliftmaster.com/Dashboard";
 var URL_TO_LOGIN = "https://www.myliftmaster.com/";
@@ -70,13 +74,20 @@ var getSession = function(sequence, params) {
 		if (!error && response.statusCode == 200) {
 		    var sessionID = getCookieValue(response, SESSION_ID_FIELD);
 		    if (sessionID != "") {
+		        params.retryCount = 0;
     		    console.log("Session ID acquired: " + sessionID);
     		    params.cookie = sessionID;
     		    runSequence(sequence)(sequence, params);
     		    return;
 		    }
 		}
-        sendResponse(params, "Could not fetch session ID", true);
+		params.retryCount++;
+		if (params.retryCount > MAX_RETRY_COUNT) {
+            sendResponse(params, "Could not fetch session ID", true);
+		} else {
+		    console.log("Failed. Retrying " + params.retryCount);
+		    getSession(sequence, params);
+		}
     });
 };
 
@@ -96,6 +107,7 @@ var doLogin = function(sequence, params) {
             var appCookie = getCookieValue(response, APPLICATION_COOKIE_FIELD);
             var special = getCookieValue(response, EXTRA_SPECIAL_FIELD);
             if (appCookie != "" && special != "") {
+                params.retryCount = 0;
                 console.log("Logged in");
                 //console.log(appCookie);
                 //console.log(special);
@@ -104,7 +116,13 @@ var doLogin = function(sequence, params) {
                 return;
             }
 		}
-        sendResponse(params, "Login unsuccessful", true);
+		params.retryCount++;
+		if (params.retryCount > MAX_RETRY_COUNT) {
+            sendResponse(params, "Login unsuccessful", true);
+		} else {
+		    console.log("Failed. Retrying " + params.retryCount);
+		    doLogin(sequence, params);
+		}
     });
 };
 
@@ -222,6 +240,7 @@ app.get('/:username/:password/:command', function (req, res){
     console.log(req.params.username + " " + req.params.password);
     var params = {
         res: res,
+        retryCount: 0,
         username: encodeURIComponent(req.params.username),
         password: encodeURIComponent(req.params.password),
         command: command
@@ -237,6 +256,7 @@ var kickoffToggle = function(socket, msg, command) {
     var sequence = [getSession, doLogin, getAccount, getDevices, toggleDoor];
     var params = {
         socket: socket,
+        retryCount: 0,
         username: encodeURIComponent(msg.username),
         password: encodeURIComponent(msg.password),
         command: command ? OPEN_COMMAND : CLOSE_COMMAND
@@ -251,6 +271,7 @@ io.on('connection', function(socket) {
     	var sequence = [getSession, doLogin, getAccount, getDevices, sendDevices];
         var params = {
             socket: socket,
+            retryCount: 0,
             username: encodeURIComponent(msg.username),
             password: encodeURIComponent(msg.password)
         };
